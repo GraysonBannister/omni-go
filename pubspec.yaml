@@ -1,0 +1,62 @@
+name: omni_go
+description: Omni Go - Remote client for omni-code AI assistant
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.2
+
+  # HTTP & Networking
+  dio: ^5.4.0
+  
+  # State Management
+  flutter_riverpod: ^2.4.9
+  riverpod_annotation: ^2.3.3
+
+  # UI Components
+  flutter_markdown: ^0.6.18
+  mobile_scanner: ^3.5.5
+  image_picker: ^1.0.7
+  
+  # WebView
+  webview_flutter: ^4.10.0
+
+  # Device / APK Install
+  android_intent_plus: ^5.1.0
+
+  # Utilities
+  path_provider: ^2.1.1
+  shared_preferences: ^2.2.2
+  url_launcher: ^6.2.2
+  intl: ^0.18.1
+  uuid: ^4.2.2
+  json_annotation: ^4.8.1
+  freezed_annotation: ^2.4.1
+  
+  # Security
+  flutter_secure_storage: ^9.0.0
+  crypto: ^3.0.0
+  
+  # Theming
+  google_fonts: ^6.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+  build_runner: ^2.4.7
+  riverpod_generator: ^2.3.9
+  freezed: ^2.4.5
+  json_serializable: ^6.7.1
+
+flutter:
+  uses-material-design: true
+  
+  assets:
+    - assets/images/
+    - assets/fonts/
