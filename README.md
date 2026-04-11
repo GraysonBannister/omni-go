@@ -58,11 +58,81 @@ flutter build appbundle --release
 # AAB location: build/app/outputs/bundle/release/app-release.aab
 ```
 
+### iOS Installation
+
+#### Build for iOS Physical Device (macOS + Xcode required)
+
+**Prerequisites:**
+- macOS with Xcode 14+ installed
+- Valid Apple Developer account (free or paid)
+- iOS device connected via USB
+
+**Steps:**
+
+```bash
+# Clone and setup
+git clone https://github.com/GraysonBannister/omni-go.git
+cd omni-go
+
+# Install dependencies
+flutter pub get
+
+# Build for iOS (device only - simulator not supported due to MLKit)
+flutter build ios --release
+
+# The build produces an IPA-compatible app bundle at:
+# build/ios/iphoneos/Runner.app
+```
+
+**Install to Device:**
+
+**Option A: Via Xcode (Easiest)**
+1. Open `ios/Runner.xcworkspace` in Xcode
+2. Select your connected iPhone/iPad as the target
+3. Go to Signing & Capabilities → Select your team
+4. Click Product → Run
+
+**Option B: Via Command Line**
+```bash
+# Install using ios-deploy (if installed)
+ios-deploy --bundle build/ios/iphoneos/Runner.app
+
+# Or use Xcode command line tools
+xcrun simctl install booted build/ios/iphoneos/Runner.app
+```
+
+**Option C: Create IPA for Distribution**
+```bash
+# Build archive for App Store or ad-hoc distribution
+flutter build ipa --release
+
+# IPA location: build/ios/ipa/omni_go.ipa
+# Use Apple Configurator or AltStore to install IPA to device
+```
+
+#### Important: iOS Simulator Limitation
+
+**Note:** Omni Go cannot run on the iOS Simulator due to the `mobile_scanner` plugin's dependency on Google MLKit, which doesn't support Apple Silicon simulator architecture.
+
+**Workarounds:**
+- Use a **physical iOS device** for testing
+- Use the **Android emulator** for UI testing
+- Test scanning features on a real device only
+
+#### Troubleshooting iOS Build
+
+| Issue | Solution |
+|-------|----------|
+| "Could not find Developer Disk Image" | Update Xcode or download device support files |
+| "Signing for 'Runner' requires a development team" | Select your Apple ID team in Xcode → Signing & Capabilities |
+| "Unable to install - application signature invalid" | Trust the developer in Settings → General → VPN & Device Management |
+| Build fails with MLKit errors | Ensure you're building for **device**, not simulator |
+
 ### Prerequisites for Building
 
 - [Flutter SDK](https://flutter.dev/docs/get-started/install) (3.0.0+)
 - [Android Studio](https://developer.android.com/studio) with Android SDK
-- For iOS: Xcode (macOS only)
+- For iOS: Xcode 14+ and macOS (physical device only, simulator not supported)
 
 ### Configure Signing (For Release)
 
@@ -125,9 +195,14 @@ Your connection URL will be displayed in Omni Code settings:
 
 ### Build Issues
 
-- **Gradle build fails** - Run `flutter clean` and try again
-- **iOS simulator build fails** - This is expected (mobile_scanner plugin limitation). Use a physical device.
-- **ADB not found** - Ensure Android SDK is installed and `ANDROID_HOME` is set
+| Issue | Solution |
+|-------|----------|
+| **Gradle build fails** | Run `flutter clean` and try again |
+| **iOS simulator build fails** | This is expected (mobile_scanner plugin limitation). Use a physical device. |
+| **iOS device build fails with MLKit errors** | Omni Go requires a physical iOS device. Simulator is not supported. |
+| **ADB not found** | Ensure Android SDK is installed and `ANDROID_HOME` is set |
+| **iOS signing errors** | Open Xcode, select your Apple ID in Signing & Capabilities |
+| **"Could not find Developer Disk Image"** | Update Xcode to the latest version |
 
 ### Development
 
