@@ -33,11 +33,15 @@ class ApiService {
 
             // HMAC request signature to prevent replay attacks.
             // Signing string: "METHOD\nPATH_WITH_QUERY\nTIMESTAMP"
+            // IMPORTANT: Must use uri.query (encoded) not queryParameters (decoded)
+            // to match server-side req.originalUrl exactly
             final timestamp =
                 DateTime.now().millisecondsSinceEpoch.toString();
             final uri = options.uri;
-            final rawPath = uri.path +
-                (uri.hasQuery ? '?${uri.query}' : '');
+            
+            // Use uri.query directly - it's already URL-encoded and matches req.originalUrl
+            final rawPath = uri.path + (uri.hasQuery ? '?${uri.query}' : '');
+            
             final signingString =
                 '${options.method.toUpperCase()}\n$rawPath\n$timestamp';
             final hmac =
@@ -46,6 +50,13 @@ class ApiService {
                 hmac.convert(utf8.encode(signingString)).toString();
             options.headers['X-Timestamp'] = timestamp;
             options.headers['X-Signature'] = sig;
+            
+            // Debug logging for signature verification (always on for now)
+            debugPrint('[SignatureDebug] uri.path: ${uri.path}');
+            debugPrint('[SignatureDebug] uri.query (encoded): ${uri.query}');
+            debugPrint('[SignatureDebug] rawPath: $rawPath');
+            debugPrint('[SignatureDebug] Client signing string: $signingString');
+            debugPrint('[SignatureDebug] Client signature: ${sig.substring(0, 16)}...');
           }
           if (kDebugMode) {
             debugPrint('Request: ${options.method} ${options.uri}');

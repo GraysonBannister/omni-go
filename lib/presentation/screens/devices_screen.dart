@@ -304,7 +304,10 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen>
       final repo = ref.read(remoteRepositoryProvider);
       final workspaceId = ref.read(currentWorkspaceProvider).valueOrNull?.sharedId;
       final downloadUrl = repo.getDownloadUrl(remotePath, workspaceId: workspaceId);
-      final headers = repo.getProxyHeaders();
+      // Sign the exact path+query that the server will see in req.originalUrl
+      final downloadUri = Uri.parse(downloadUrl);
+      final downloadPath = downloadUri.path + (downloadUri.hasQuery ? '?${downloadUri.query}' : '');
+      final headers = repo.getProxyHeaders(path: downloadPath);
       debugPrint('[DownloadInstall] workspaceId=$workspaceId');
       debugPrint('[DownloadInstall] downloadUrl=$downloadUrl');
       debugPrint('[DownloadInstall] headers=$headers');
@@ -351,7 +354,7 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen>
       final fileSize = await file.length();
       debugPrint('[DownloadInstall] Local file size: $fileSize bytes');
 
-      const authority = 'com.omnigo.app.fileprovider';
+      const authority = 'app.omnicode.omnigo.fileprovider';
       final contentUri = 'content://$authority/cache/$fileName';
       debugPrint('[DownloadInstall] Launching installer via AndroidIntent, uri=$contentUri');
       final intent = AndroidIntent(

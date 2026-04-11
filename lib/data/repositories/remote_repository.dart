@@ -1219,17 +1219,19 @@ class RemoteRepository {
     return '$base${ApiEndpoints.proxyBase}/$port/$cleanPath';
   }
 
-  /// Get headers needed for authenticated proxy requests (for WebView)
-  /// Generates HMAC signature for initial page load (GET request to root path)
+  /// Get headers needed for authenticated requests (for Dio.download or WebView).
+  /// [path] must be the full path+query as it will appear in req.originalUrl,
+  /// e.g. "/api/files/download?path=foo%2Fbar.apk&workspaceId=xyz"
   Map<String, String> getProxyHeaders({String method = 'GET', String path = '/'}) {
     final apiKey = _apiService.apiKey;
     if (apiKey == null) return {};
 
     final timestamp = DateTime.now().millisecondsSinceEpoch.toString();
-    
-    // Generate HMAC signature: "METHOD\nPATH_WITH_QUERY\nTIMESTAMP"
-    final cleanPath = path.startsWith('/') ? path.substring(1) : path;
-    final signingString = '$method\n/$cleanPath\n$timestamp';
+
+    // Signing string must exactly match server: "METHOD\nPATH_WITH_QUERY\nTIMESTAMP"
+    // Ensure path starts with /
+    final normalizedPath = path.startsWith('/') ? path : '/$path';
+    final signingString = '$method\n$normalizedPath\n$timestamp';
     final hmac = Hmac(sha256, utf8.encode(apiKey));
     final signature = hmac.convert(utf8.encode(signingString)).toString();
 
