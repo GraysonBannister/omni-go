@@ -1,8 +1,11 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as path;
 import '../../core/errors/failures.dart';
 import '../../data/models/file_item.dart';
 import '../../data/repositories/remote_repository.dart';
 import 'server_provider.dart';
+import 'workspace_provider.dart';
 
 final filesControllerProvider = StateNotifierProvider<FilesController, AsyncValue<List<FileItem>>>((ref) {
   return FilesController(ref);
@@ -22,12 +25,26 @@ class FilesController extends StateNotifier<AsyncValue<List<FileItem>>> {
 
   FilesController(this._ref) : super(const AsyncValue.loading());
 
-  Future<void> loadDirectory(String path) async {
+  Future<void> loadDirectory(String dirPath) async {
     try {
       final repo = _ref.read(remoteRepositoryProvider);
       _repository = repo;
       state = const AsyncValue.loading();
-      final files = await repo.listFiles(path);
+
+      // For multi-folder workspaces, resolve relative paths against selected folder
+      String absolutePath = dirPath;
+      if (!dirPath.startsWith('/')) {
+        final selectedFolder = _ref.read(selectedWorkspaceFolderProvider).valueOrNull;
+        final folderRoot = selectedFolder?.path;
+        if (folderRoot != null && folderRoot.isNotEmpty) {
+          absolutePath = path.join(folderRoot, dirPath);
+          if (kDebugMode) {
+            debugPrint('[FilesController] Resolved relative path "$dirPath" to "$absolutePath" using folder: ${selectedFolder?.name}');
+          }
+        }
+      }
+
+      final files = await repo.listFiles(absolutePath);
       state = AsyncValue.data(files);
     } on Failure catch (e) {
       state = AsyncValue.error(e, StackTrace.current);

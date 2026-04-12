@@ -174,9 +174,9 @@ class _WorkspaceFoldersProviderElement
 }
 
 String _$currentWorkingDirectoryHash() =>
-    r'076143af7a22edd3567e4d29df66598979c3ab92';
+    r'61f214473e45e0a7414620e0e8364a24d1bbebd6';
 
-/// Provider for the current working directory (first folder of active workspace)
+/// Provider for the current working directory (selected folder of active workspace)
 ///
 /// Copied from [currentWorkingDirectory].
 @ProviderFor(currentWorkingDirectory)
@@ -310,5 +310,25 @@ final currentWorkspaceProvider =
 );
 
 typedef _$CurrentWorkspace = AsyncNotifier<Workspace?>;
+String _$selectedWorkspaceFolderHash() =>
+    r'e35c71e762b576b84a7d031a44d987d65a0c107e';
+
+/// Provider for the currently selected folder within the active workspace
+/// This allows users to switch between project folders in a multi-folder workspace
+///
+/// Copied from [SelectedWorkspaceFolder].
+@ProviderFor(SelectedWorkspaceFolder)
+final selectedWorkspaceFolderProvider =
+    AsyncNotifierProvider<SelectedWorkspaceFolder, WorkspaceFolder?>.internal(
+  SelectedWorkspaceFolder.new,
+  name: r'selectedWorkspaceFolderProvider',
+  debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
+      ? null
+      : _$selectedWorkspaceFolderHash,
+  dependencies: null,
+  allTransitiveDependencies: null,
+);
+
+typedef _$SelectedWorkspaceFolder = AsyncNotifier<WorkspaceFolder?>;
 // ignore_for_file: type=lint
 // ignore_for_file: subtype_of_sealed_class, invalid_use_of_internal_member, invalid_use_of_visible_for_testing_member, deprecated_member_use_from_same_package

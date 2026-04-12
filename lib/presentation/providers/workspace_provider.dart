@@ -139,12 +139,103 @@ Future<List<WorkspaceFolder>> workspaceFolders(WorkspaceFoldersRef ref, String s
   return repository.getWorkspaceFolders(sharedId);
 }
 
-/// Provider for the current working directory (first folder of active workspace)
+/// Provider for the currently selected folder within the active workspace
+/// This allows users to switch between project folders in a multi-folder workspace
+@Riverpod(keepAlive: true)
+class SelectedWorkspaceFolder extends _$SelectedWorkspaceFolder {
+  String? _currentWorkspaceId;
+
+  @override
+  Future<WorkspaceFolder?> build() async {
+    final workspace = await ref.watch(currentWorkspaceProvider.future);
+
+    // Reset to first folder when workspace changes
+    if (workspace == null) {
+      _currentWorkspaceId = null;
+      return null;
+    }
+
+    if (workspace.folders.isEmpty) {
+      _currentWorkspaceId = workspace.sharedId;
+      return null;
+    }
+
+    // Check if we have a saved folder selection for this workspace
+    if (_currentWorkspaceId != workspace.sharedId) {
+      _currentWorkspaceId = workspace.sharedId;
+      final savedFolderId = await _loadSavedFolderId(workspace.sharedId);
+      if (savedFolderId != null) {
+        final savedFolder = workspace.folders.firstWhere(
+          (f) => f.id == savedFolderId,
+          orElse: () => workspace.folders.first,
+        );
+        return savedFolder;
+      }
+    }
+
+    // Default to first folder
+    _currentWorkspaceId = workspace.sharedId;
+    return workspace.folders.first;
+  }
+
+  void selectFolder(WorkspaceFolder folder) {
+    final currentWorkspace = ref.read(currentWorkspaceProvider).valueOrNull;
+    if (currentWorkspace != null) {
+      _saveFolderId(currentWorkspace.sharedId, folder.id);
+    }
+    state = AsyncData(folder);
+  }
+
+  /// Get the root path of the currently selected folder
+  String? get selectedFolderPath {
+    return state.valueOrNull?.path;
+  }
+
+  Future<String?> _loadSavedFolderId(String workspaceId) async {
+    try {
+      return await _secureStorage.read(
+        key: '${StorageKeys.currentWorkspaceId}_folder_$workspaceId',
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[SelectedWorkspaceFolder] Failed to load saved folder: $e');
+      }
+      return null;
+    }
+  }
+
+  Future<void> _saveFolderId(String workspaceId, String folderId) async {
+    try {
+      await _secureStorage.write(
+        key: '${StorageKeys.currentWorkspaceId}_folder_$workspaceId',
+        value: folderId,
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[SelectedWorkspaceFolder] Failed to save folder ID: $e');
+      }
+    }
+  }
+}
+
+/// Provider for the current working directory (selected folder of active workspace)
 @riverpod
 Future<String?> currentWorkingDirectory(CurrentWorkingDirectoryRef ref) async {
   final workspace = await ref.watch(currentWorkspaceProvider.future);
-  if (workspace == null || workspace.folders.isEmpty) return null;
-  return workspace.folders.first.path;
+  if (workspace == null) return null;
+
+  // For multi-folder workspaces, use the selected folder
+  final selectedFolder = ref.watch(selectedWorkspaceFolderProvider).valueOrNull;
+  if (selectedFolder != null) {
+    return selectedFolder.path;
+  }
+
+  // Fallback to first folder for backward compatibility
+  if (workspace.folders.isNotEmpty) {
+    return workspace.folders.first.path;
+  }
+
+  return null;
 }
 
 /// Provider that returns true if workspaces are loading

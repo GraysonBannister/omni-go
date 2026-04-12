@@ -15,6 +15,7 @@ import '../../presentation/providers/server_provider.dart';
 import '../../presentation/providers/terminal_manager_provider.dart';
 import '../../presentation/providers/workspace_provider.dart';
 import '../../presentation/widgets/code_viewer_with_diff.dart';
+import '../../presentation/widgets/folder_selector.dart';
 import '../../presentation/widgets/workspace_selector.dart';
 
 class FilesScreen extends ConsumerStatefulWidget {
@@ -167,23 +168,21 @@ class _FilesScreenState extends ConsumerState<FilesScreen> {
   }
 
   String _getFullPath(FileItem file) {
-    final workspace = ref.read(currentWorkspaceProvider).valueOrNull;
-    final workspaceRoot = workspace?.folders.isNotEmpty == true
-        ? workspace!.folders.first.path
-        : '';
-    if (workspaceRoot.isNotEmpty && !file.path.startsWith('/')) {
-      return '$workspaceRoot/${file.path}';
+    final selectedFolder = ref.read(selectedWorkspaceFolderProvider).valueOrNull;
+    final folderRoot = selectedFolder?.path ?? '';
+
+    if (folderRoot.isNotEmpty && !file.path.startsWith('/')) {
+      return path.join(folderRoot, file.path);
     }
     return file.path;
   }
 
   String _getRelativePath(FileItem file) {
-    final workspace = ref.read(currentWorkspaceProvider).valueOrNull;
-    final workspaceRoot = workspace?.folders.isNotEmpty == true
-        ? workspace!.folders.first.path
-        : '';
-    if (workspaceRoot.isNotEmpty && file.path.startsWith(workspaceRoot)) {
-      final rel = file.path.substring(workspaceRoot.length);
+    final selectedFolder = ref.read(selectedWorkspaceFolderProvider).valueOrNull;
+    final folderRoot = selectedFolder?.path ?? '';
+
+    if (folderRoot.isNotEmpty && file.path.startsWith(folderRoot)) {
+      final rel = file.path.substring(folderRoot.length);
       return rel.startsWith('/') ? rel.substring(1) : rel;
     }
     return file.path;
@@ -626,6 +625,16 @@ class _FilesScreenState extends ConsumerState<FilesScreen> {
         actions: [
           const Flexible(
             child: WorkspaceSelectorChip(),
+          ),
+          const SizedBox(width: 4),
+          Flexible(
+            child: FolderSelectorChip(
+              onFolderChanged: () {
+                // Reset to root of new folder when folder changes
+                ref.read(currentDirectoryProvider.notifier).state = '.';
+                ref.read(filesControllerProvider.notifier).loadDirectory('.');
+              },
+            ),
           ),
           IconButton(
             icon: _isLoadingGitStatus

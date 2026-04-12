@@ -23,7 +23,7 @@ final remoteRepositoryProvider = AutoDisposeProvider<RemoteRepository>.internal(
 @Deprecated('Will be removed in 3.0. Use Ref instead')
 // ignore: unused_element
 typedef RemoteRepositoryRef = AutoDisposeProviderRef<RemoteRepository>;
-String _$serverConnectionHash() => r'dfd0a6b84b24a5006cbacf3b046ccc1f6880aee1';
+String _$serverConnectionHash() => r'4c9d72acd06dbf2f0ec7fbf4ed3ab6acd82f8197';
 
 /// See also [ServerConnection].
 @ProviderFor(ServerConnection)
