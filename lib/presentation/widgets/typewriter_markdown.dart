@@ -112,11 +112,15 @@ class _TypewriterMarkdownState extends State<TypewriterMarkdown> {
             ? _displayedLength
             : oldWidget.content.length,
       ))) {
-        // Content is extending, continue animation
+        // Content is extending — don't cancel/restart the timer if it's already
+        // ticking. The periodic callback reads widget.content.length dynamically,
+        // so it will naturally chase the growing content without a restart.
         if (_displayedLength > widget.content.length) {
           _displayedLength = widget.content.length;
         }
-        _startAnimation();
+        if (_timer == null || !_timer!.isActive) {
+          _startAnimation();
+        }
       } else {
         // Content changed completely, reset animation
         _displayedLength = 0;

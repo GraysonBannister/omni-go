@@ -51,12 +51,13 @@ class ApiService {
             options.headers['X-Timestamp'] = timestamp;
             options.headers['X-Signature'] = sig;
             
-            // Debug logging for signature verification (always on for now)
-            debugPrint('[SignatureDebug] uri.path: ${uri.path}');
-            debugPrint('[SignatureDebug] uri.query (encoded): ${uri.query}');
-            debugPrint('[SignatureDebug] rawPath: $rawPath');
-            debugPrint('[SignatureDebug] Client signing string: $signingString');
-            debugPrint('[SignatureDebug] Client signature: ${sig.substring(0, 16)}...');
+            if (kDebugMode) {
+              debugPrint('[SignatureDebug] uri.path: ${uri.path}');
+              debugPrint('[SignatureDebug] uri.query (encoded): ${uri.query}');
+              debugPrint('[SignatureDebug] rawPath: $rawPath');
+              debugPrint('[SignatureDebug] Client signing string: $signingString');
+              debugPrint('[SignatureDebug] Client signature: ${sig.substring(0, 16)}...');
+            }
           }
           if (kDebugMode) {
             debugPrint('Request: ${options.method} ${options.uri}');

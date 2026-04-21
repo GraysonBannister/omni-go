@@ -17,6 +17,7 @@ import '../../data/models/server_config.dart';
 import '../../data/models/terminal_session.dart';
 import '../../data/models/workspace.dart';
 import '../../services/api_service.dart';
+import '../../services/notification_service.dart';
 import '../../services/sse_service.dart';
 
 class RemoteRepository {
@@ -214,6 +215,7 @@ class RemoteRepository {
     Function(Failure)? onError,
     VoidCallback? onConnect,
     VoidCallback? onDisconnect,
+    VoidCallback? onMissedEvents,
   }) {
     _sseService.connectToAgentEvents(
       conversationId,
@@ -221,6 +223,7 @@ class RemoteRepository {
       onError: onError,
       onConnect: onConnect,
       onDisconnect: onDisconnect,
+      onMissedEvents: onMissedEvents,
     );
   }
 
@@ -1495,6 +1498,39 @@ class RemoteRepository {
 
   void dispose() {
     _sseService.dispose();
+  }
+
+  /// Notify the underlying services that the app has been backgrounded
+  void notifyBackgrounded() {
+    _sseService.onAppBackgrounded();
+  }
+
+  /// Notify the underlying services that the app has resumed from background
+  void notifyResumed() {
+    _sseService.onAppResumed();
+  }
+
+  /// Get the last event timestamp for missed event detection
+  DateTime? get lastEventTimestamp => _sseService.lastEventTimestamp;
+
+  /// Request sync of missed events since the given timestamp
+  void requestSync(DateTime? since) {
+    _sseService.requestSync(since);
+  }
+
+  /// Request notification permissions from the device
+  /// This should be called after user connects to server
+  Future<bool> requestNotificationPermissions() async {
+    try {
+      // Import notification service and request permissions
+      final notificationService = NotificationService();
+      return await notificationService.requestPermissions();
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[RemoteRepository] Error requesting notification permissions: $e');
+      }
+      return false;
+    }
   }
 }
 

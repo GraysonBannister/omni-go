@@ -9,6 +9,7 @@ class ApiEndpoints {
   static const String closeConversation = '/api/agent/close-conversation';
   static const String conversations = '/api/agent/conversations';
   static const String events = '/api/agent/events';
+  static const String ws = '/api/ws';
   static const String respondPermission = '/api/agent/respond-permission';
   static const String respondUserInput = '/api/agent/respond-user-input';
   

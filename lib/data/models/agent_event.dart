@@ -88,10 +88,20 @@ class AgentEvent with _$AgentEvent {
       debugPrint('[AgentEvent] Error object: ${data['error']}');
     }
 
+    if (kDebugMode && type == AgentEventType.streamDelta) {
+      debugPrint('[AgentEvent] stream_delta: deltaType=${data['delta']?['type']}, hasText=${data['delta']?['text'] != null}');
+    }
+
     return AgentEvent(
       type: type,
       conversationId: conversationId,
-      delta: data['delta']?['text'] as String?,
+      // Only surface text deltas in the streaming bubble.  Thinking/reasoning
+      // deltas (delta.type == 'thinking') come from models like kimi-k2.5 and
+      // must not appear as chat content — the authoritative response text arrives
+      // in the turn_complete event's message.content field instead.
+      delta: data['delta']?['type'] == 'thinking'
+          ? null
+          : data['delta']?['text'] as String?,
       message: data['message'] as Map<String, dynamic>?,
       toolName: data['toolName'] as String?,
       toolId: data['toolId'] as String?,

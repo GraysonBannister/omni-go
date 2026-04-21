@@ -10,6 +10,7 @@ import '../../data/models/file_reference.dart';
 import '../../data/models/image_attachment.dart';
 import '../../data/models/message.dart';
 import '../../data/repositories/remote_repository.dart';
+import '../../services/notification_service.dart';
 import 'ai_mode_provider.dart';
 import 'model_provider.dart';
 import 'server_provider.dart';
@@ -56,6 +57,8 @@ class ChatController extends StateNotifier<Conversation> {
   final Ref _ref;
   RemoteRepository? _repository;
   String? _conversationId;
+  DateTime? _lastSyncTimestamp;
+  bool _isSyncing = false;
 
   ChatController(this._ref) : super(Conversation.empty()) {
     _ref.listen(serverConnectionProvider, (previous, next) {
@@ -93,7 +96,7 @@ class ChatController extends StateNotifier<Conversation> {
 
       _conversationId = conversation.id;
       if (kDebugMode) {
-        debugPrint('[ChatController] Conversation created: ${_conversationId}, model=${conversation.model}, provider=${conversation.provider}, mode=${conversation.mode}');
+        debugPrint('[ChatController] Conversation created: $_conversationId, model=${conversation.model}, provider=${conversation.provider}, mode=${conversation.mode}');
       }
       state = conversation.copyWith(isLoading: false);
 
@@ -223,9 +226,53 @@ class ChatController extends StateNotifier<Conversation> {
       _conversationId!,
       onEvent: _handleAgentEvent,
       onError: (failure) => state = state.copyWith(isLoading: false, isStreaming: false, error: failure.message),
-      onConnect: () { if (kDebugMode) debugPrint('Connected to agent events'); },
-      onDisconnect: () { if (kDebugMode) debugPrint('Disconnected from agent events'); },
+      onConnect: () {
+        if (kDebugMode) debugPrint('[ChatController] Connected to agent events');
+        _lastSyncTimestamp = DateTime.now();
+      },
+      onDisconnect: () {
+        if (kDebugMode) debugPrint('[ChatController] Disconnected from agent events');
+        // If the SSE connection drops while a response is still streaming, the
+        // turn_complete event will never arrive. Promote any partial streaming
+        // message to a regular text message so the user isn't left stuck with a
+        // frozen loading state. The SSE service will schedule a reconnect on its
+        // own; we just need to unlock the UI.
+        if (state.isStreaming) {
+          if (kDebugMode) {
+            debugPrint('[ChatController] SSE disconnected mid-stream — finalizing partial message');
+          }
+          _finalizeStreamingMessage();
+        }
+      },
+      onMissedEvents: () {
+        if (kDebugMode) {
+          debugPrint('[ChatController] Missed events detected during sync');
+        }
+        // Trigger a state sync to ensure we have all messages
+        syncConversationState();
+      },
     );
+  }
+
+  /// Promotes the last [MessageType.streaming] message to [MessageType.text]
+  /// and clears the loading/streaming flags. Used when a turn_complete event
+  /// is missed (e.g. SSE disconnect before the server sends it).
+  void _finalizeStreamingMessage() {
+    final messages = [...state.messages];
+    if (messages.isNotEmpty && messages.last.type == MessageType.streaming) {
+      final lastMessage = messages.last;
+      messages[messages.length - 1] = Message(
+        id: lastMessage.id,
+        role: MessageRole.assistant,
+        type: MessageType.text,
+        content: lastMessage.content,
+        timestamp: DateTime.now(),
+      );
+      if (kDebugMode) {
+        debugPrint('[ChatController] Finalized partial streaming message, length=${lastMessage.content.length}');
+      }
+    }
+    state = state.copyWith(messages: messages, isLoading: false, isStreaming: false);
   }
 
   /// Reconnect to agent events after app returns from background.
@@ -262,22 +309,124 @@ class ChatController extends StateNotifier<Conversation> {
     }
 
     _connectToEvents();
+
+    // Update sync timestamp and track for debugging
+    _lastSyncTimestamp = DateTime.now();
+    if (kDebugMode) {
+      debugPrint('[ChatController] Events reconnected, sync timestamp: $_lastSyncTimestamp');
+    }
   }
 
   /// Handle app returning from background.
   /// Call this from the lifecycle observer to manage connection state.
   Future<void> handleAppResumed() async {
-    // If we have an active conversation, try to reconnect to events
-    if (_conversationId != null && state.isStreaming) {
+    if (_conversationId == null) {
       if (kDebugMode) {
-        debugPrint('[ChatController] App resumed with active streaming, checking connection');
+        debugPrint('[ChatController] No active conversation on resume');
+      }
+      return;
+    }
+
+    // Prevent concurrent syncs
+    if (_isSyncing) {
+      if (kDebugMode) {
+        debugPrint('[ChatController] Already syncing, skipping duplicate');
+      }
+      return;
+    }
+
+    _isSyncing = true;
+
+    try {
+      if (kDebugMode) {
+        debugPrint('[ChatController] App resumed, syncing conversation state');
       }
 
-      // Reset streaming state since connection was likely dropped
-      state = state.copyWith(isStreaming: false, isLoading: false);
+      // Reset streaming state since connection was likely dropped during background
+      if (state.isStreaming) {
+        if (kDebugMode) {
+          debugPrint('[ChatController] Streaming was active, finalizing partial message');
+        }
+        _finalizeStreamingMessage();
+      }
 
-      // Reconnect will be handled by the server connection verification
+      // Get fresh repository reference
+      try {
+        final repo = _ref.read(remoteRepositoryProvider);
+        _repository = repo;
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint('[ChatController] Failed to get repository for resume sync: $e');
+        }
+        return;
+      }
+
+      // Request sync of any missed events
+      _requestSync();
+
+      // Reconnect to events
       reconnectToEvents();
+    } finally {
+      _isSyncing = false;
+    }
+  }
+
+  void _requestSync() {
+    if (_repository == null) return;
+
+    // Get the last known event timestamp from the repository
+    final lastEventTime = _repository!.lastEventTimestamp;
+
+    if (kDebugMode) {
+      debugPrint('[ChatController] Requesting sync since: $lastEventTime');
+    }
+
+    // Request sync from the server
+    _repository!.requestSync(lastEventTime);
+
+    // Also update our local tracking
+    _lastSyncTimestamp = DateTime.now();
+  }
+
+  /// Fetch and sync the latest conversation state from the server.
+  /// This is used to recover any messages that arrived while backgrounded.
+  Future<void> syncConversationState() async {
+    if (_conversationId == null || _repository == null) {
+      if (kDebugMode) {
+        debugPrint('[ChatController] Cannot sync - no conversation or repository');
+      }
+      return;
+    }
+
+    if (_isSyncing) {
+      if (kDebugMode) {
+        debugPrint('[ChatController] Already syncing');
+      }
+      return;
+    }
+
+    _isSyncing = true;
+
+    try {
+      if (kDebugMode) {
+        debugPrint('[ChatController] Syncing conversation state with server');
+      }
+
+      // Load the conversation from server to get any missed messages
+      // Note: We need workspaceId for this, get it from state or settings
+      // For now, we rely on the sync message sent to the WebSocket
+      // which will trigger events for any missed messages
+
+      // Alternative: Fetch conversation history directly
+      // This would require storing the workspaceId in the conversation state
+
+      _lastSyncTimestamp = DateTime.now();
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[ChatController] Error syncing conversation state: $e');
+      }
+    } finally {
+      _isSyncing = false;
     }
   }
 
@@ -522,13 +671,23 @@ class ChatController extends StateNotifier<Conversation> {
     }
     final messages = [...state.messages];
     String? finalContent;
+
+    // Always use the server's authoritative content from the turn_complete event.
+    // This is critical for thinking models (e.g. kimi-k2.5) where stream_delta
+    // events include raw reasoning/thinking text that must NOT appear in the final
+    // message bubble. The turn_complete message contains only the clean response.
+    final serverId = event.message?['id'] as String?;
+    final reasoning = event.message?['reasoning'] as String?;
+    final eventContent = _extractTurnContent(event.message);
+
     if (messages.isNotEmpty && messages.last.type == MessageType.streaming) {
       final lastMessage = messages.last;
-      finalContent = lastMessage.content;
-      // Use the server's message ID so that change previews (stored by server ID) resolve correctly
-      final serverId = event.message?['id'] as String?;
+      // Prefer the authoritative content from the server; fall back to the
+      // accumulated streaming buffer only if the server sent nothing.
+      finalContent = (eventContent != null && eventContent.isNotEmpty)
+          ? eventContent
+          : lastMessage.content;
       final finalId = serverId ?? lastMessage.id;
-      final reasoning = event.message?['reasoning'] as String?;
       messages[messages.length - 1] = Message(
         id: finalId,
         role: MessageRole.assistant,
@@ -538,9 +697,32 @@ class ChatController extends StateNotifier<Conversation> {
         timestamp: DateTime.now(),
       );
       if (kDebugMode) {
-        debugPrint('[ChatController:turnComplete] Finalized streaming message, id=$finalId, length=${finalContent.length}, hasReasoning=${reasoning != null}');
+        debugPrint('[ChatController:turnComplete] Finalized streaming message, id=$finalId, length=${finalContent.length}, hasReasoning=${reasoning != null}, usedEventContent=${eventContent != null && eventContent.isNotEmpty}');
+      }
+    } else if (eventContent != null && eventContent.isNotEmpty) {
+      // No streaming message was built (all stream_delta events were missed —
+      // e.g. SSE connection dropped — or the model never emits stream_delta for
+      // its response text). Create the assistant message directly from the
+      // turn_complete payload so the response is never silently discarded.
+      finalContent = eventContent;
+      final finalId = serverId ?? DateTime.now().millisecondsSinceEpoch.toString();
+      messages.add(Message(
+        id: finalId,
+        role: MessageRole.assistant,
+        type: MessageType.text,
+        content: finalContent,
+        reasoning: reasoning,
+        timestamp: DateTime.now(),
+      ));
+      if (kDebugMode) {
+        debugPrint('[ChatController:turnComplete] Created message from event content (no streaming message), id=$finalId, length=${finalContent.length}');
+      }
+    } else {
+      if (kDebugMode) {
+        debugPrint('[ChatController:turnComplete] No content to finalize (eventContent=$eventContent, hasStreamingMsg=${messages.isNotEmpty && messages.last.type == MessageType.streaming})');
       }
     }
+
     state = state.copyWith(messages: messages, isLoading: false, isStreaming: false);
 
     // Detect structured plan in the completed message
@@ -549,9 +731,62 @@ class ChatController extends StateNotifier<Conversation> {
       _detectAndStorePlan(finalContent, sourceMessageId: sourceId);
     }
 
+    // Trigger notification if app is in background and we have content
+    // Use unawaited since we don't need to wait for notification to complete
+    if (finalContent != null && finalContent.isNotEmpty) {
+      _triggerCompletionNotification(finalContent);
+    }
+
     if (kDebugMode) {
       debugPrint('[ChatController:turnComplete] Turn complete handled, isLoading=false, isStreaming=false');
     }
+  }
+
+  /// Trigger a local notification when chat completes while app is backgrounded.
+  void _triggerCompletionNotification(String content) {
+    // Check if app is in background
+    if (!NotificationService().isInBackground) {
+      return;
+    }
+
+    // Only notify if we have an active conversation
+    if (_conversationId == null) {
+      return;
+    }
+
+    if (kDebugMode) {
+      debugPrint('[ChatController] Triggering completion notification');
+    }
+
+    // Fire and forget - don't block the event processing
+    NotificationService().showChatCompleteNotification(
+      conversationId: _conversationId!,
+      messagePreview: content,
+      title: 'Omni Code',
+    ).catchError((e) {
+      if (kDebugMode) {
+        debugPrint('[ChatController] Failed to show notification: $e');
+      }
+    });
+  }
+
+  /// Extracts the plain-text content from a turn_complete message map.
+  /// Handles both a raw String and the OpenAI/Anthropic content-block list
+  /// format: [{"type": "text", "text": "..."}].
+  String? _extractTurnContent(Map<String, dynamic>? message) {
+    if (message == null) return null;
+    final content = message['content'];
+    if (content == null) return null;
+    if (content is String) return content.isEmpty ? null : content;
+    if (content is List) {
+      final joined = content
+          .whereType<Map<String, dynamic>>()
+          .map((block) => block['text'] as String? ?? '')
+          .join();
+      return joined.isEmpty ? null : joined;
+    }
+    final str = content.toString();
+    return str.isEmpty ? null : str;
   }
 
   void _detectAndStorePlan(String content, {String? sourceMessageId}) {

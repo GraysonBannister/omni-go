@@ -4,8 +4,10 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../../config/constants.dart';
 import '../../core/errors/failures.dart';
 import '../../data/models/server_config.dart';
+import '../../data/models/connection_health.dart';
 import '../../data/repositories/remote_repository.dart';
 import '../../services/api_service.dart';
+import '../../services/notification_service.dart';
 import '../../services/sse_service.dart';
 
 part 'server_provider.g.dart';
@@ -15,11 +17,32 @@ const _secureStorage = FlutterSecureStorage();
 @Riverpod(keepAlive: true)
 class ServerConnection extends _$ServerConnection {
   RemoteRepository? _repository;
+  int _reconnectCount = 0;
+  DateTime? _lastConnectedAt;
+  DateTime? _lastDisconnectedAt;
+  int? _lastLatencyMs;
+  String? _lastError;
 
   @override
   ServerConfig build() {
     _loadSavedConfig();
     return ServerConfig.empty();
+  }
+
+  /// Get current connection health metrics
+  ConnectionHealth get connectionHealth {
+    final isConnected = state.isConnected;
+    final isHealthy = isConnected && (_lastLatencyMs == null || _lastLatencyMs! < 1000);
+
+    return ConnectionHealth(
+      isConnected: isConnected,
+      isHealthy: isHealthy,
+      latencyMs: _lastLatencyMs,
+      reconnectCount: _reconnectCount,
+      lastConnectedAt: _lastConnectedAt,
+      lastDisconnectedAt: _lastDisconnectedAt,
+      lastError: _lastError,
+    );
   }
 
   Future<void> _loadSavedConfig() async {
@@ -124,12 +147,15 @@ class ServerConnection extends _$ServerConnection {
     }
 
     // Quick test first
+    final startTime = DateTime.now();
     final isStillConnected = await testCurrentConnection();
+    _lastLatencyMs = DateTime.now().difference(startTime).inMilliseconds;
 
     if (isStillConnected) {
       // Connection is good, just make sure state reflects that
       if (!state.isConnected) {
         state = state.copyWith(isConnected: true, error: null);
+        _lastConnectedAt = DateTime.now();
       }
       return true;
     }
@@ -138,6 +164,9 @@ class ServerConnection extends _$ServerConnection {
     if (kDebugMode) {
       debugPrint('[ServerConnection] Connection lost during background, attempting reconnect');
     }
+
+    _reconnectCount++;
+    _lastDisconnectedAt = DateTime.now();
 
     // Reinitialize the repository
     await connect();
@@ -161,6 +190,9 @@ class ServerConnection extends _$ServerConnection {
 
     state = state.copyWith(isLoading: true, error: null);
 
+    // Track connection attempt timing
+    final startTime = DateTime.now();
+
     try {
       final apiService = ApiService();
       final sseService = SseService();
@@ -169,10 +201,25 @@ class ServerConnection extends _$ServerConnection {
 
       final result = await _repository!.testConnection();
 
+      // Calculate connection latency
+      _lastLatencyMs = DateTime.now().difference(startTime).inMilliseconds;
+
       if (result.isConnected) {
+        _lastConnectedAt = DateTime.now();
+        _lastError = null;
+        _reconnectCount = 0;
         state = result.copyWith(isLoading: false);
         await _saveConfig();
+
+        // Request notification permissions after successful connection
+        // This is a good time to ask since the user has just successfully connected
+        if (kDebugMode) {
+          debugPrint('[ServerConnection] Requesting notification permissions');
+        }
+        await NotificationService().requestPermissions();
       } else {
+        _lastDisconnectedAt = DateTime.now();
+        _lastError = result.error ?? 'Connection failed';
         state = state.copyWith(
           isLoading: false,
           isConnected: false,
@@ -180,12 +227,18 @@ class ServerConnection extends _$ServerConnection {
         );
       }
     } on Failure catch (e) {
+      _lastDisconnectedAt = DateTime.now();
+      _lastError = e.message;
+      _lastLatencyMs = null;
       state = state.copyWith(
         isLoading: false,
         isConnected: false,
         error: e.message,
       );
     } catch (e) {
+      _lastDisconnectedAt = DateTime.now();
+      _lastError = e.toString();
+      _lastLatencyMs = null;
       state = state.copyWith(
         isLoading: false,
         isConnected: false,
@@ -197,7 +250,10 @@ class ServerConnection extends _$ServerConnection {
   Future<void> disconnect() async {
     _repository?.dispose();
     _repository = null;
+    _lastDisconnectedAt = DateTime.now();
+    _lastLatencyMs = null;
     state = state.copyWith(isConnected: false);
+
     await _secureStorage.delete(key: StorageKeys.serverUrl);
     await _secureStorage.delete(key: StorageKeys.apiKey);
     await _secureStorage.delete(key: StorageKeys.lastConnectedAt);

@@ -37,13 +37,19 @@ dependencies:
   uuid: ^4.2.2
   json_annotation: ^4.8.1
   freezed_annotation: ^2.4.1
+  connectivity_plus: ^5.0.2
   
   # Security
   flutter_secure_storage: ^9.0.0
   crypto: ^3.0.0
-  
+
   # Theming
   google_fonts: ^6.1.0
+  web_socket_channel: ^3.0.3
+
+  # Notifications
+  flutter_local_notifications: ^17.0.0
+  permission_handler: ^11.3.0
 
 dev_dependencies:
   flutter_test:
