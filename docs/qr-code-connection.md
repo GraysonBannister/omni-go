@@ -39,7 +39,7 @@ The QR code contains a JSON object with:
 ```json
 {
   "url": "https://xxx.ngrok.io",
-  "key": "64-character-api-key",
+  "key": "<YOUR_API_KEY_HERE>",
   "name": "Omni Code Desktop"
 }
 ```
